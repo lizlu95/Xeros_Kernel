@@ -153,8 +153,9 @@ void     set_evec(unsigned int xnum, unsigned long handler);
 void     printCF (void * stack);  /* print the call frame */
 int      syscall(int call, ...);  /* Used in the system call stub */
 void     sleep(pcb *, unsigned int);
+void     removeFromSleep(pcb * p);
 void     tick( void );
-
+int      getCPUtimes(pcb *p, processStatuses *ps);
 
 /* Function prototypes for system calls as called by the application */
 int          syscreate( funcptr fp, size_t stack );
@@ -162,7 +163,10 @@ void         sysyield( void );
 void         sysstop( void );
 unsigned int sysgetpid( void );
 unsigned int syssleep(unsigned int);
-void     sysputs(char *str);
+void         sysputs(char *str);
+int          syskill(int pcb);
+int          sysgetcputimes(processStatuses *ps);
+
 
 /* The initial process that the system creates and schedules */
 void     root( void );
