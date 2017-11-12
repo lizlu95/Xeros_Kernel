@@ -1,0 +1,741 @@
+Only in .: Changes.txt
+diff -c ../../xa3/c/create.c ./create.c
+*** ../../xa3/c/create.c	2017-11-12 11:12:18.009231605 -0800
+--- ./create.c	2017-11-12 11:56:48.787387687 -0800
+***************
+*** 11,18 ****
+  #define ARM_INTERRUPTS          0x00000200
+  
+  
+! // PIDs can't start at 0 nor can they be negative
+! static int      nextpid = 1;
+  
+  
+  
+--- 11,23 ----
+  #define ARM_INTERRUPTS          0x00000200
+  
+  
+! 
+! // Another bit of a hack. Th PID value of 0 is reserved for the 
+! // NULL/idle process. The underlying assumption is that the 
+! // idle process will be the first process created. IF that isn't
+! // the case the system will break. 
+! 
+! static int      nextpid = 0;
+  
+  
+  
+***************
+*** 66,71 ****
+--- 71,77 ----
+          return CREATE_FAILURE;
+      }
+  
++     // The -4 gets us one extra stack spot for the return address
+      cf = (context_frame *)((unsigned char *)cf + stackSize - 4);
+      cf--;
+  
+***************
+*** 77,86 ****
+  
+      cf->esp = (int)(cf + 1);
+      cf->ebp = cf->esp;
+      p->esp = (unsigned long*)cf;
+      p->state = STATE_READY;
+      p->pid = nextpid++;
+! 
+      ready( p );
+      return p->pid;
+  }
+--- 83,93 ----
+  
+      cf->esp = (int)(cf + 1);
+      cf->ebp = cf->esp;
++     cf->stackSlots[0] = (int) sysstop;
+      p->esp = (unsigned long*)cf;
+      p->state = STATE_READY;
+      p->pid = nextpid++;
+!     p->cpuTime = 0;
+      ready( p );
+      return p->pid;
+  }
+diff -c ../../xa3/c/disp.c ./disp.c
+*** ../../xa3/c/disp.c	2017-11-12 11:12:18.009231605 -0800
+--- ./disp.c	2017-11-12 11:56:48.787387687 -0800
+***************
+*** 6,11 ****
+--- 6,12 ----
+  #include <xeroslib.h>
+  #include <stdarg.h>
+  
++ static int  kill(pcb *currP, int pid);
+  
+  static pcb      *head = NULL;
+  static pcb      *tail = NULL;
+***************
+*** 40,45 ****
+--- 41,54 ----
+          p->state = STATE_STOPPED;
+          p = next();
+          break;
++       case ( SYS_KILL ):
++         ap = (va_list)p->args;
++ 	p->ret = kill(p, va_arg( ap, int ) );
++ 	break;
++       case (SYS_CPUTIMES):
++ 	ap = (va_list) p->args;
++ 	p->ret = getCPUtimes(p, va_arg(ap, processStatuses *));
++ 	break;
+        case( SYS_PUTS ):
+  	  ap = (va_list)p->args;
+  	  str = va_arg( ap, char * );
+***************
+*** 57,62 ****
+--- 66,73 ----
+  	break;
+        case( SYS_TIMER ):
+  	tick();
++ 	//kprintf("T");
++ 	p->cpuTime++;
+  	ready( p );
+  	p = next();
+  	end_of_intr();
+***************
+*** 107,113 ****
+          if( !head ) {
+              tail = NULL;
+          }
+!     } else {
+          kprintf( "BAD\n" );
+          for(;;);
+      }
+--- 118,124 ----
+          if( !head ) {
+              tail = NULL;
+          }
+!     } else { // Nothing on the ready Q and there should at least be the idle proc.
+          kprintf( "BAD\n" );
+          for(;;);
+      }
+***************
+*** 131,133 ****
+--- 142,298 ----
+  
+      return( NULL );
+  }
++ 
++ 
++ // This function takes a pointer to the pcbtab entry of the currently active process. 
++ // The functions purpose is to remove the process being pointed to from the ready Q
++ // A similar function exists for the management of the sleep Q. Things should be re-factored to 
++ // eliminate the duplication of code if possible. There are some challenges to that because
++ // the sleepQ is a delta list and something more than just removing an element in a list
++ // is being preformed. 
++ 
++ 
++ void removeFromReady(pcb * p) {
++ 
++   if (!head) {
++     kprintf("Ready queue corrupt, empty when it shouldn't be\n");
++     return;
++   }
++ 
++   if (head == p) { // At front of list
++     // kprintf("Pid %d is at front of list\n", p->pid);
++     head = p->next;
++ 
++     // If the implementation has idle on the ready list this next statement
++     // isn't needed. However, it is left just in case someone decides to 
++     // change things so that the idle process is kept separate. 
++ 
++     if (head == NULL) { // If the implementation has idle process  on the 
++       tail = head;      // ready list this should never happen
++       kprintf("Kernel bug: Where is the idle process\n");
++     }
++   } else {  // Not at front, find the process.
++     pcb * prev = head;
++     pcb * curr;
++     
++     for (curr = head->next; curr!=NULL; curr = curr->next) {
++       if (curr == p) { // Found process so remove it
++ 	// kprintf("Found %d in list, removing\n", curr->pid);
++ 	prev->next = p->next;
++ 	if (tail == p) { //last element in list
++ 	    tail = prev;
++ 	    // kprintf("Last element\n");
++ 	}
++ 	p->next = NULL; // just to clean things up
++ 	break;
++       }
++       prev = curr;
++     }
++     if (curr == NULL) {
++       kprintf("Kernel bug: Ready queue corrupt, process %d claimed on queue and not found\n",
++ 	      p->pid);
++       
++     }
++   }
++ }
++ 
++ // This function takes 2 paramenters:
++ //  currP  - a pointer into the pcbtab that identifies the currently running process
++ //  pid    - the proces ID of the process to be killed.
++ //
++ // Note: this function needs to be augmented so that it delivers a kill signal to a 
++ //       a particular process. The main functionality of the this routine will remain the 
++ //       same except that when the process is located it needs to be put onto the readyq
++ //       and a signal needs to be marked for delivery. 
++ //
++ 
++ static int  kill(pcb *currP, int pid) {
++   pcb * targetPCB;
++   
++   kprintf("Current pid %d Killing %d\n", currP->pid, pid);
++   
++   if (pid == currP->pid) {   // Trying to kill self
++     return -2;
++   }
++ 
++   // Don't let it kill the idle process, which from the user side
++   // of things isn't a real process
++   // IDLE process had PID 0
++ 
++   if (pid == 0) {
++     return -1;
++   }
++     
++   if (!(targetPCB = findPCB( pid ))) {
++     // kprintf("Target pid not found\n");
++     return -1;
++   }
++ 
++   if (targetPCB->state == STATE_STOPPED) {
++     kprintf("Target pid was stopped\n");
++     return  -1;
++   }
++   
++   // PCB has been found,  and the proces is either sleepign or running.
++   // based on that information remove the process from 
++   // the appropriate queue/list.
++ 
++   if (targetPCB->state == STATE_SLEEP) {
++     // kprintf("Target pid %d sleeping\n", targetPCB->pid);
++     removeFromSleep(targetPCB);
++   }
++ 
++   if (targetPCB->state == STATE_READY) {
++     // remove from ready queue
++     // kprintf("Target pid %d is ready\n", targetPCB->pid);
++     removeFromReady(targetPCB);
++   }
++ 
++   // Check other states and do state specific cleanup before stopping
++   // the process 
++   // In the new version the process will not be marked as stopped but be 
++   // put onto the readyq and a signal marked for delivery. 
++ 
++   targetPCB->state = STATE_STOPPED;
++   return 0;
++ }
++   
++ 
++ // This function is the system side of the sysgetcputimes call.
++ // It places into a the structure being pointed to information about
++ // each currently active process. 
++ //  p - a pointer into the pcbtab of the currently active process
++ //  ps  - a pointer to a processStatuses structure that is 
++ //        filled with information about all the processes currently in the system
++ //
++ 
++ extern char * maxaddr;
++   
++ int getCPUtimes(pcb *p, processStatuses *ps) {
++   
++   int i, currentSlot;
++   currentSlot = -1;
++ 
++   // Check if address is in the hole
++   if (((unsigned long) ps) >= HOLESTART && ((unsigned long) ps <= HOLEEND)) 
++     return -1;
++ 
++   //Check if address of the data structure is beyone the end of main memory
++   if ((((char * ) ps) + sizeof(processStatuses)) > maxaddr)  
++     return -2;
++ 
++   // There are probably other address checks that can be done, but this is OK for now
++ 
++ 
++   for (i=0; i < MAX_PROC; i++) {
++     if (proctab[i].state != STATE_STOPPED) {
++       // fill in the table entry
++       currentSlot++;
++       ps->pid[currentSlot] = proctab[i].pid;
++       ps->status[currentSlot] = p->pid == proctab[i].pid ? STATE_RUNNING: proctab[i].state;
++       ps->cpuTime[currentSlot] = proctab[i].cpuTime * MILLISECONDS_TICK;
++     }
++   }
++ 
++   return currentSlot;
++ }
+diff -c ../../xa3/c/init.c ./init.c
+*** ../../xa3/c/init.c	2017-11-12 11:12:18.009231605 -0800
+--- ./init.c	2017-11-12 11:56:48.787387687 -0800
+***************
+*** 42,50 ****
+   */
+  void initproc( void )				/* The beginning */
+  {
+! 
+!   kprintf( "\n\nCPSC 415, 2017W1 \n32 Bit Xeros -1.0.0 - even before beta \nLocated at: %x to %x\n", 
+! 	   &entry, &end);   
+    
+    kprintf("Max addr is %d %x\n", maxaddr, maxaddr);
+    
+--- 42,51 ----
+   */
+  void initproc( void )				/* The beginning */
+  {
+!   kprintf( "\n\nCPSC 415, 2016W1 \n32 Bit Xeros 0.01 \nLocated at: %x to %x\n", 
+! 	   &entry, &end); 
+!   
+!   /* Your code goes here */
+    
+    kprintf("Max addr is %d %x\n", maxaddr, maxaddr);
+    
+***************
+*** 57,71 ****
+    contextinit();
+    kprintf("context inited\n");
+    
+    
+    // Note that this idle process gets a regular time slice but
+    // according to the A2 specs it should only get a time slice when
+    // there are no other processes available to run. This approach 
+    // works, but will give the idle process a time slice when other 
+!   // processes are available for execution and thereby needless waste
+!   // CPU resources that could be used by user processes.
+! 
+    kprintf("Creating Idle Process\n");
+    create(idleproc, PROC_STACK);
+    
+    create( root, PROC_STACK );
+--- 58,76 ----
+    contextinit();
+    kprintf("context inited\n");
+    
++ 
++   // WARNING THE FIRST PROCESS CREATED MUST BE THE IDLE PROCESS.
++   // See comments in create.c
+    
+    // Note that this idle process gets a regular time slice but
+    // according to the A2 specs it should only get a time slice when
+    // there are no other processes available to run. This approach 
+    // works, but will give the idle process a time slice when other 
+!   // processes are available for execution and thereby needlessly waste
+!   // CPU resources that could be used by user processes. This is 
+!   // somewhat migigated by the immediate call to sysyield()
+    kprintf("Creating Idle Process\n");
++ 
+    create(idleproc, PROC_STACK);
+    
+    create( root, PROC_STACK );
+***************
+*** 73,78 ****
+--- 78,84 ----
+    
+    dispatch();
+    
++   
+    kprintf("Returned to init, you should never get here!\n");
+    
+    /* This code should never be reached after you are done */
+diff -c ../../xa3/c/mem.c ./mem.c
+*** ../../xa3/c/mem.c	2017-11-12 11:12:18.009231605 -0800
+--- ./mem.c	2017-11-12 11:56:12.932228254 -0800
+***************
+*** 38,45 ****
+       head->next->size = (1024 * 1024 * 4) - HOLEEND;
+  }
+  
+! int kfree(void * mem) {
+!   return 1;
+  }
+  
+  
+--- 38,45 ----
+       head->next->size = (1024 * 1024 * 4) - HOLEEND;
+  }
+  
+! void kfree(void * mem) {
+! 
+  }
+  
+  
+diff -c ../../xa3/c/sleep.c ./sleep.c
+*** ../../xa3/c/sleep.c	2017-11-12 11:12:18.009231605 -0800
+--- ./sleep.c	2017-11-12 11:56:48.787387687 -0800
+***************
+*** 6,12 ****
+  #include <xeroslib.h>
+  
+  
+! #define MILLISECONDS_TICK 10
+  static pcb	*sleepQ;
+  
+  
+--- 6,12 ----
+  #include <xeroslib.h>
+  
+  
+! 
+  static pcb	*sleepQ;
+  
+  
+***************
+*** 83,90 ****
+      }
+  }
+  
+  
+! extern void	tick( void ) {
+  /****************************/
+  
+      pcb	*tmp;
+--- 83,130 ----
+      }
+  }
+  
++ void removeFromSleep(pcb * p) {
++ 
++   if (!sleepQ) {
++     kprintf("Sleep queue corrupt, empty when it shouldn't be\n");
++     return;
++   }
++ 
++   if (sleepQ == p) { // At front of list
++     sleepQ = p->next;
++     if (sleepQ != NULL) { // adjust sleep time
++       kprintf("Sleep values are %d %d\n", sleepQ->sleepdiff, p->sleepdiff);
++       sleepQ->sleepdiff = sleepQ->sleepdiff +  p->sleepdiff;
++       kprintf("Front sleeping process %d for %d\n", sleepQ->pid, sleepQ->sleepdiff);
++     } else {
++       kprintf("Only thing on sleep q\n");
++     }
++   } else {  // Not at front, find the process.
++     pcb * prev = sleepQ;
++     pcb * curr;
++     
++     for (curr = sleepQ->next; curr!=NULL; curr = curr->next) {
++       if (curr == p) { // Found process so remove it
++ 	prev->next = p->next;
++ 	if (prev->next != NULL) {
++ 	  prev->next->sleepdiff = prev->next->sleepdiff +  p->sleepdiff;
++ 	  kprintf("Sleeping pid %d differential %d\n", prev->next->pid, prev->next->sleepdiff);
++ 	  p->next = NULL; // just to clean things up
++ 	} else {
++ 	  kprintf("Sleeping %d was last process on list\n", curr->pid);
++ 	}
++ 	break;
++       }
++       prev = curr;
++     }
++     if (curr == NULL) {
++       kprintf("Sleep queue corrupt, process claims on queue and not found\n");
++       
++     }
++   }
++ }
+  
+! extern void tick( void ) {
+  /****************************/
+  
+      pcb	*tmp;
+diff -c ../../xa3/c/syscall.c ./syscall.c
+*** ../../xa3/c/syscall.c	2017-11-12 11:12:18.009231605 -0800
+--- ./syscall.c	2017-11-12 11:56:48.787387687 -0800
+***************
+*** 64,66 ****
+--- 64,73 ----
+      return syscall( SYS_SLEEP, t );
+  }
+  
++ int syskill(int pid) {
++   return syscall(SYS_KILL, pid);
++ }
++ 
++ int sysgetcputimes(processStatuses *ps) {
++   return syscall(SYS_CPUTIMES, ps);
++ }
+diff -c ../../xa3/c/user.c ./user.c
+*** ../../xa3/c/user.c	2017-11-12 11:12:18.009231605 -0800
+--- ./user.c	2017-11-12 11:56:48.787387687 -0800
+***************
+*** 4,14 ****
+--- 4,85 ----
+  #include <xeroskernel.h>
+  #include <xeroslib.h>
+  
++ void busy( void ) {
++   int myPid;
++   char buff[100];
++   int i;
++   int count = 0;
++ 
++   myPid = sysgetpid();
++   
++   for (i = 0; i < 10; i++) {
++     sprintf(buff, "My pid is %d\n", myPid);
++     sysputs(buff);
++     if (myPid == 2 && count == 1) syskill(3);
++     count++;
++     sysyield();
++   }
++ }
++ 
++ 
++ 
++ void sleep1( void ) {
++   int myPid;
++   char buff[100];
++ 
++   myPid = sysgetpid();
++   sprintf(buff, "Sleeping 1000 is %d\n", myPid);
++   sysputs(buff);
++   syssleep(1000);
++   sprintf(buff, "Awoke 1000 from my nap %d\n", myPid);
++   sysputs(buff);
++ }
++ 
++ 
++ 
++ void sleep2( void ) {
++   int myPid;
++   char buff[100];
++ 
++   myPid = sysgetpid();
++   sprintf(buff, "Sleeping 2000 pid is %d\n", myPid);
++   sysputs(buff);
++   syssleep(2000);
++   sprintf(buff, "Awoke 2000 from my nap %d\n", myPid);
++   sysputs(buff);
++ }
++ 
++ 
++ 
++ void sleep3( void ) {
++   int myPid;
++   char buff[100];
++ 
++   myPid = sysgetpid();
++   sprintf(buff, "Sleeping 3000 pid is %d\n", myPid);
++   sysputs(buff);
++   syssleep(3000);
++   sprintf(buff, "Awoke 3000 from my nap %d\n", myPid);
++   sysputs(buff);
++ }
++ 
++ 
++ 
++ 
++ 
++ 
++ 
++ 
+  void producer( void ) {
+  /****************************/
+  
+      int         i;
+      char        buff[100];
++ 
++ 
++     // Sping to get some cpu time
++     for(i = 0; i < 100000; i++);
++ 
+      syssleep(3000);
+      for( i = 0; i < 20; i++ ) {
+        
+***************
+*** 31,36 ****
+--- 102,109 ----
+  
+      int         i;
+      char        buff[100];
++ 
++     for(i = 0; i < 50000; i++);
+      syssleep(3000);
+      for( i = 0; i < 10; i++ ) {
+        sprintf(buff, "Consumer %d\n", i);
+***************
+*** 53,75 ****
+  /****************************/
+  
+      char  buff[100];
+      int proc_pid, con_pid;
+      sysputs("Root has been called\n");
+!     syssleep(3000);
+      sysyield();
+      sysyield();
+!    
+      proc_pid = syscreate( &producer, 4096 );
+      con_pid = syscreate( &consumer, 4096 );
+      sprintf(buff, "Proc pid = %d Con pid = %d\n", proc_pid, con_pid);
+      sysputs( buff );
+  
+      sprintf(buff, "Root finished\n");
+      sysputs( buff );
+      sysstop();
+! 
+      for( ;; ) {
+       sysyield();
+      }
+  }
+  
+--- 126,272 ----
+  /****************************/
+  
+      char  buff[100];
++     int pids[5];
+      int proc_pid, con_pid;
++     int i;
++ 
+      sysputs("Root has been called\n");
+! 
+! 
+!     // Test for ready queue removal. 
+!    
+!     proc_pid = syscreate(&busy, 1024);
+!     con_pid = syscreate(&busy, 1024);
+      sysyield();
++     syskill(proc_pid);
+      sysyield();
+!     syskill(con_pid);
+! 
+!     
+!     for(i = 0; i < 5; i++) {
+!       pids[i] = syscreate(&busy, 1024);
+!     }
+! 
+!     sysyield();
+!     
+!     syskill(pids[3]);
+!     sysyield();
+!     syskill(pids[2]);
+!     syskill(pids[4]);
+!     sysyield();
+!     syskill(pids[0]);
+!     sysyield();
+!     syskill(pids[1]);
+!     sysyield();
+! 
+!     syssleep(8000);;
+! 
+! 
+! 
+!     kprintf("***********Sleeping no kills *****\n");
+!     // Now test for sleeping processes
+!     pids[0] = syscreate(&sleep1, 1024);
+!     pids[1] = syscreate(&sleep2, 1024);
+!     pids[2] = syscreate(&sleep3, 1024);
+! 
+!     sysyield();
+!     syssleep(8000);;
+! 
+! 
+! 
+!     kprintf("***********Sleeping kill 2000 *****\n");
+!     // Now test for removing middle sleeping processes
+!     pids[0] = syscreate(&sleep1, 1024);
+!     pids[1] = syscreate(&sleep2, 1024);
+!     pids[2] = syscreate(&sleep3, 1024);
+! 
+!     syssleep(110);
+!     syskill(pids[1]);
+!     syssleep(8000);;
+! 
+!     kprintf("***********Sleeping kill last 3000 *****\n");
+!     // Now test for removing last sleeping processes
+!     pids[0] = syscreate(&sleep1, 1024);
+!     pids[1] = syscreate(&sleep2, 1024);
+!     pids[2] = syscreate(&sleep3, 1024);
+! 
+!     sysyield();
+!     syskill(pids[2]);
+!     syssleep(8000);;
+! 
+!     kprintf("***********Sleeping kill first process 1000*****\n");
+!     // Now test for first sleeping processes
+!     pids[0] = syscreate(&sleep1, 1024);
+!     pids[1] = syscreate(&sleep2, 1024);
+!     pids[2] = syscreate(&sleep3, 1024);
+! 
+!     syssleep(100);
+!     syskill(pids[0]);
+!     syssleep(8000);;
+! 
+!     // Now test for 1 process
+! 
+! 
+!     kprintf("***********One sleeping process, killed***\n");
+!     pids[0] = syscreate(&sleep2, 1024);
+! 
+!     sysyield();
+!     syskill(pids[0]);
+!     syssleep(8000);;
+! 
+!     kprintf("***********One sleeping process, not killed***\n");
+!     pids[0] = syscreate(&sleep2, 1024);
+! 
+!     sysyield();
+!     syssleep(8000);;
+! 
+! 
+! 
+!     kprintf("***********Three sleeping processes***\n");    // 
+!     pids[0] = syscreate(&sleep1, 1024);
+!     pids[1] = syscreate(&sleep2, 1024);
+!     pids[2] = syscreate(&sleep3, 1024);
+! 
+! 
+!     // Producer and consumer started too
+      proc_pid = syscreate( &producer, 4096 );
+      con_pid = syscreate( &consumer, 4096 );
+      sprintf(buff, "Proc pid = %d Con pid = %d\n", proc_pid, con_pid);
+      sysputs( buff );
+  
++ 
++     processStatuses psTab;
++     int procs;
++     
++ 
++ 
++ 
++     syssleep(500);
++     procs = sysgetcputimes(&psTab);
++ 
++     for(int j = 0; j <= procs; j++) {
++       sprintf(buff, "%4d    %4d    %10d\n", psTab.pid[j], psTab.status[j], 
++ 	      psTab.cpuTime[j]);
++       kprintf(buff);
++     }
++ 
++ 
++     syssleep(10000);
++     procs = sysgetcputimes(&psTab);
++ 
++     for(int j = 0; j <= procs; j++) {
++       sprintf(buff, "%4d    %4d    %10d\n", psTab.pid[j], psTab.status[j], 
++ 	      psTab.cpuTime[j]);
++       kprintf(buff);
++     }
++ 
+      sprintf(buff, "Root finished\n");
+      sysputs( buff );
+      sysstop();
+!     
+      for( ;; ) {
+       sysyield();
+      }
++     
+  }
+  
