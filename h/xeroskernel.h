@@ -60,6 +60,8 @@ void           outb(unsigned int, unsigned char);
 #define MILLISECONDS_TICK 10     
    /* Maximum number of signals */
 #define MAX_SIG         32   
+#define MAX_FD          4
+#define MAX_DEVICE      2
 
 
 /* Constants to track states that a process is in */
@@ -83,9 +85,45 @@ void           outb(unsigned int, unsigned char);
 #define SYS_SIGHANDLER  180
 #define SYS_SIGRET      184
 #define SYS_WAIT        186
+#define SYS_OPEN        100
+#define SYS_CLOSE       110
+#define SYS_WRITE       120
+#define SYS_READ        130
+#define SYS_IOCTL       140
+
+
+typedef struct devsw devsw;
+struct devsw {
+  int dvnum;
+  char *dvname;
+  int (*dvinit)(void*);
+  int (*dvopen)(void*, int);
+  int (*dvclose)(void*, int);
+  int (*dvread)(void*, int,void (*)(void*,int, int),void*,int );
+  int (*dvwrite)(void*, int);
+  int (*dvseek)(void*);
+  int (*dvgetc)(void*);
+  int (*dvputc)(void*);
+  int (*dvcntl)(void*);
+  void *dvcsr;
+  void *dvivec;
+  void *dvovec;
+  int (*dviint)(void*);
+  int (*dvoint)(void*);
+  void *dvioblk;
+  int dvminor;
+};
+
+typedef struct struct_fdt fdt;
+struct struct_fdt {
+  int major;
+  int minor;
+  devsw *dev;
+  void *ctr_data;
+  int status;
+};
 
 /* Structure to track the information associated with a single process */
-
 typedef struct struct_pcb pcb;
 struct struct_pcb {
   void        *esp;    /* Pointer to top of saved stack           */
@@ -106,6 +144,8 @@ struct struct_pcb {
   pcb         *waitfor;
   pcb         *blockQ;
   int          sigmark[MAX_SIG];
+  fdt          fd_table[MAX_FD];
+  int          fd;
 };
 
 
@@ -117,9 +157,11 @@ struct struct_ps {
   long  cpuTime[MAX_PROC]; // CPU time used in milliseconds
 };
 
-
 /* The actual space is set aside in create.c */
 extern pcb     proctab[MAX_PROC];
+
+extern devsw   devtab[MAX_DEVICE];
+//unsigned int kkb_buffer[KKB_BUFFER_SIZE];
 
 #pragma pack(1)
 
@@ -178,6 +220,12 @@ int      signal(int pid, int signal);
 pcb      *enQ(pcb *head, pcb *proc);
 int      currtick(pcb *proc);
 pcb      *remove(pcb *head, pcb *proc);
+int      di_open(pcb* p, int device_no);
+int      di_close(pcb* p, int fd);
+int      di_write(pcb* p, int fd, void* buff, int bufflen);
+int      di_read(pcb* p, int fd, void* buff, int bufflen, int count);
+int      di_ioctl(pcb* p, int fd, void *addr);
+void     unblock_read(pcb* p, int len, int count);
 
 
 /* Function prototypes for system calls as called by the application */
@@ -192,6 +240,11 @@ int          sysgetcputimes(processStatuses *ps);
 int          syssighandler(int signal, void (*newhandler)(void *), void (** oldHandler)(void *));
 void         syssigreturn(void *old_sp);
 int          syswait(int PID);
+int          sysopen(int device_no);
+int          sysclose(int fd);
+int          syswrite(int fd, void *buff, int bufflen);
+int          sysread(int fd, void *buff, int bufflen);
+int          sysioctl(int fd, unsigned long command, ...);
 
 /* The initial process that the system creates and schedules */
 void     root( void );

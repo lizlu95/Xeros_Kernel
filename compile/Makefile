@@ -43,7 +43,7 @@ IOBJ = init.o i386.o evec.o kprintf.o
 UOBJ = mem.o disp.o ctsw.o syscall.o create.o user.o msg.o sleep.o signal.o
 
 #Add your sources here
-MY_OBJ = 
+MY_OBJ = di_calls.o kbd.o
 
 
 # Don't modiy any of this unless you are really sure
@@ -74,6 +74,10 @@ ${IOBJ}:
 ${UOBJ}: 
 	${CC} ${CFLAGS} ../c/`basename $@ .o`.[c]
 
+${MY_OBJ}:
+	${CC} ${CFLAGS} ../c/`basename $@ .o`.[c]
+
+
 init.o: ../c/init.c ../h/i386.h ../h/xeroskernel.h ../h/xeroslib.h
 i386.o: ../c/i386.c ../h/i386.h ../h/icu.h ../h/xeroskernel.h ../h/xeroslib.h
 evec.o: ../c/evec.c ../h/i386.h ../h/xeroskernel.h ../h/xeroslib.h
@@ -87,3 +91,5 @@ user.o: ../c/user.c ../h/xeroskernel.h ../h/xeroslib.h
 msg.o: ../c/msg.c ../h/xeroskernel.h ../h/xeroslib.h 
 sleep.o: ../c/sleep.c ../h/xeroskernel.h ../h/xeroslib.h
 signal.o: ../c/signal.c ../h/xeroskernel.h ../h/xeroslib.h
+di_calls.o: ../c/di_calls.c ../h/xeroskernel.h ../h/xeroslib.h
+kbd.o: ../c/kbd.c ../h/xeroskernel.h ../h/xeroslib.h ../h/kbd.h ../h/i386.h

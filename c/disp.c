@@ -91,8 +91,37 @@ void     dispatch( void ) {
 	      	ap = (va_list)p->args;
 	      	p->ret = wait(va_arg( ap, int ),p);
 	      	break;  
-
-      default:
+	    case(SYS_OPEN):
+	      	ap = (va_list)p->args;
+	      	int device_no = va_arg(ap, int);
+	      	p->ret = di_open(p, device_no);
+	      	break;
+	      case(SYS_CLOSE):
+	      	ap = (va_list)p->args;
+	      	int fd = va_arg(ap, int);
+	      	p->ret = di_close(p, fd);	        
+	      	break;
+	      case(SYS_WRITE):
+	      	ap = (va_list)p->args;
+	      	fd = va_arg(ap, int);
+	      	void *buff = va_arg(ap, void *);
+	      	int bufflen = va_arg(ap, int);
+	      	p->ret = di_write(p, fd, buff, bufflen);					        
+	      	break;
+	      case(SYS_READ):
+	      	ap = (va_list)p->args;
+	      	fd = va_arg(ap, int);
+	      	buff = va_arg(ap, void *);
+	      	bufflen = va_arg(ap, int);        	
+	      	p->ret = di_read(p, fd, buff, bufflen, 0);	        
+	      	break;
+	      case(SYS_IOCTL):
+	      	ap = (va_list)p->args;
+	      	fd = va_arg(ap, int);
+	      	unsigned long* addr = va_arg(ap, unsigned long *);
+	      	p->ret = di_ioctl(p, fd, (unsigned long *)addr);
+	      	break;
+      	default:
 			kprintf( "Bad Sys request %d, pid = %d\n", r, p->pid );
         }
     }
