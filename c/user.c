@@ -4,7 +4,7 @@
 #include <xeroskernel.h>
 #include <xeroslib.h>
 
-void busy( void ) {
+/*void busy( void ) {
   int myPid;
   char buff[100];
   int i;
@@ -63,15 +63,14 @@ void sleep3( void ) {
   sysputs(buff);
 }
 
+*/
 
 
 
 
 
-
-
+/*
 void producer( void ) {
-/****************************/
 
     int         i;
     char        buff[100];
@@ -98,7 +97,6 @@ void producer( void ) {
 }
 
 void consumer( void ) {
-/****************************/
 
     int         i;
     char        buff[100];
@@ -123,7 +121,6 @@ void consumer( void ) {
 }
 
 void     root( void ) {
-/****************************/
 
     char  buff[100];
     int pids[5];
@@ -269,4 +266,4 @@ void     root( void ) {
     }
     
 }
-
+*/

@@ -73,7 +73,7 @@ void initproc( void )				/* The beginning */
 
   create(idleproc, PROC_STACK);
   
-  create( root, PROC_STACK );
+  //create( root, PROC_STACK );
   kprintf("create inited\n");
   
   dispatch();

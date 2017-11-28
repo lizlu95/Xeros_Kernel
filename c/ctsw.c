@@ -7,6 +7,7 @@
 
 void _KernelEntryPoint(void);
 void _TimerEntryPoint(void);
+void _KeyboardEntryPoint(void);
 
 static void               *saveESP;
 static unsigned int        rc;
@@ -18,6 +19,18 @@ int contextswitch( pcb *p ) {
 
     /* keep every thing on the stack to simplfiy gcc's gesticulations
      */
+    int i = MAX_SIG;
+    int sig = -1;
+    while (i-->0)
+        if (p->sigmark[i]) {
+            sig = i;
+            break;
+        } 
+
+    if (sig) {
+        actualsignal(p, sig);
+        p->sigmark[sig] = 0;
+    }
 
     saveESP = p->esp;
     rc = p->ret; 
@@ -58,6 +71,11 @@ int contextswitch( pcb *p ) {
         movl    %%eax, 28(%%esp) \n\
         popa \n\
         iret \n\
+   _KeyboardEntryPoint:  \n\
+        cli  \n\
+        pusha  \n\
+        movl $2, %%ecx  \n\
+        jmp _CommonJumpPoint  \n\
    _TimerEntryPoint: \n\
         cli   \n\
         pusha \n\
@@ -89,10 +107,13 @@ int contextswitch( pcb *p ) {
     /* save esp and read in the arguments
      */
     p->esp = saveESP;
-    if( trapNo ) {
-	/* return value (eax) must be restored, (treat it as return value) */
-	p->ret = rc;
-	rc = SYS_TIMER;
+    if( trapNo == 1 ) {
+    	/* return value (eax) must be restored, (treat it as return value) */
+    	p->ret = rc;
+    	rc = SYS_TIMER;
+    } else if (trapNo == 2) {
+        p->ret = rc;
+        rc = SYS_KB;
     } else {
         p->args = args;
     }
@@ -104,6 +125,37 @@ void contextinit( void ) {
   kprintf("Context init called\n");
   set_evec( KERNEL_INT, (int) _KernelEntryPoint );
   set_evec( TIMER_INT,  (int) _TimerEntryPoint );
+  set_evec( KB_INT,  (int) _KeyboardEntryPoint );
   initPIT( 100 );
 
+}
+
+
+void actualsignal(pcb *p, int sig) {
+    
+    unsigned long * ESP = p->esp;
+    *ESP = (unsigned long) p->ret;
+    ESP--; 
+    *ESP = (unsigned long) p->esp;      
+    ESP--;
+    *ESP = (unsigned long) p->sig_table[sig];                     
+    ESP--;
+    *ESP = 0;
+    p->esp = ESP;
+
+    /* need a fake context */
+    struct context_frame *ctfm = (struct context_frame *)(p->esp - sizeof(struct context_frame)/sizeof(unsigned long));
+    ctfm->edi = 0;
+    ctfm->esi = 0;
+    ctfm->ebp = 0;
+    ctfm->esp = 0;
+    ctfm->ebx = 0;
+    ctfm->edx = 0;
+    ctfm->ecx = 0;
+    ctfm->eax = 0;
+    ctfm->iret_eip = (unsigned long) &sigtramp;
+    ctfm->iret_cs = getCS();
+    ctfm->eflags = 0x00003200;
+    /* update esp value */
+    p->esp = (unsigned long *) ctfm;
 }

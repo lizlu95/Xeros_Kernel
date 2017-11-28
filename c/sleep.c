@@ -147,3 +147,14 @@ extern void tick( void ) {
         ready( tmp );
     }
 }
+
+int currtick(pcb *proc) {
+  int t = 0;
+  pcb *tmp = sleepQ;
+  while (tmp != proc) {
+    t += tmp->sleepdiff;
+    tmp = tmp->next;
+  }
+  t += proc->sleepdiff;
+  return t;
+}

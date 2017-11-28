@@ -52,11 +52,14 @@ void           outb(unsigned int, unsigned char);
 #define KERNEL_INT      80
    /* Interrupt number for the timer */
 #define TIMER_INT      (TIMER_IRQ + 32)
+#define KB_INT          33
    /* Minimum size of a stack when a process is created */
 #define PROC_STACK      (4096 * 4)    
               
    /* Number of milliseconds in a tick */
-#define MILLISECONDS_TICK 10        
+#define MILLISECONDS_TICK 10     
+   /* Maximum number of signals */
+#define MAX_SIG         32   
 
 
 /* Constants to track states that a process is in */
@@ -64,17 +67,22 @@ void           outb(unsigned int, unsigned char);
 #define STATE_READY     1
 #define STATE_SLEEP     22
 #define STATE_RUNNING   23
+#define STATE_BLOCK     30
 
 /* System call identifiers */
 #define SYS_STOP        10
 #define SYS_YIELD       11
 #define SYS_CREATE      22
 #define SYS_TIMER       33
+#define SYS_KB          44
 #define SYS_GETPID      144
 #define SYS_PUTS        155
 #define SYS_SLEEP       166
 #define SYS_KILL        177
 #define SYS_CPUTIMES    178
+#define SYS_SIGHANDLER  180
+#define SYS_SIGRET      184
+#define SYS_WAIT        186
 
 /* Structure to track the information associated with a single process */
 
@@ -94,6 +102,10 @@ struct struct_pcb {
   int          bufferlen;
   int          sleepdiff;
   long         cpuTime;  /* CPU time consumed                     */
+  void        (*sig_table[MAX_SIG]) (void*);
+  pcb         *waitfor;
+  pcb         *blockQ;
+  int          sigmark[MAX_SIG];
 };
 
 
@@ -146,8 +158,11 @@ void     dispatch( void );
 void     dispatchinit( void );
 void     ready( pcb *p );
 pcb      *next( void );
+pcb      *findPCB( int pid );
+void     removeFromReady(pcb * p);
 void     contextinit( void );
 int      contextswitch( pcb *p );
+void     actualsignal(pcb *p, int sig);
 int      create( funcptr fp, size_t stack );
 void     set_evec(unsigned int xnum, unsigned long handler);
 void     printCF (void * stack);  /* print the call frame */
@@ -156,6 +171,14 @@ void     sleep(pcb *, unsigned int);
 void     removeFromSleep(pcb * p);
 void     tick( void );
 int      getCPUtimes(pcb *p, processStatuses *ps);
+int      sighandler(pcb* p, int signal, void (*newhandler) (void*), void (**oldHandler) (void*));
+int      wait(int pid, pcb *p);
+void     sigtramp(void (*handler)(void*), void *cntx);
+int      signal(int pid, int signal);
+pcb      *enQ(pcb *head, pcb *proc);
+int      currtick(pcb *proc);
+pcb      *remove(pcb *head, pcb *proc);
+
 
 /* Function prototypes for system calls as called by the application */
 int          syscreate( funcptr fp, size_t stack );
@@ -164,9 +187,11 @@ void         sysstop( void );
 unsigned int sysgetpid( void );
 unsigned int syssleep(unsigned int);
 void         sysputs(char *str);
-int          syskill(int pcb);
+int          syskill(int pcb, int signalNumber);
 int          sysgetcputimes(processStatuses *ps);
-
+int          syssighandler(int signal, void (*newhandler)(void *), void (** oldHandler)(void *));
+void         syssigreturn(void *old_sp);
+int          syswait(int PID);
 
 /* The initial process that the system creates and schedules */
 void     root( void );

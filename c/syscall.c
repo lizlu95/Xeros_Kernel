@@ -64,10 +64,22 @@ unsigned int syssleep( unsigned int t ) {
     return syscall( SYS_SLEEP, t );
 }
 
-int syskill(int pid) {
-  return syscall(SYS_KILL, pid);
+int syskill(int pid, int signalNumber) {
+  return syscall(SYS_KILL, pid, signalNumber);
 }
 
 int sysgetcputimes(processStatuses *ps) {
   return syscall(SYS_CPUTIMES, ps);
+}
+
+int syssighandler(int signal, void (*newhandler)(void *), void (** oldHandler)(void *)) {
+    return syscall(SYS_SIGHANDLER, signal, newhandler, oldHandler);
+}
+
+void syssigreturn(void *old_sp) {
+    syscall(SYS_SIGRET, old_sp);
+}
+
+int syswait(int PID) {
+    return syscall(SYS_WAIT, PID);
 }

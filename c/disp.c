@@ -6,7 +6,7 @@
 #include <xeroslib.h>
 #include <stdarg.h>
 
-static int  kill(pcb *currP, int pid);
+static int  kill(pcb *currP, int pid, int sig);
 
 static pcb      *head = NULL;
 static pcb      *tail = NULL;
@@ -21,60 +21,80 @@ void     dispatch( void ) {
     va_list     ap;
     char        *str;
     int         len;
+    int 		signal;
+    void (*new_handler) (void*);
+    void (**old_handler) (void*);
 
     for( p = next(); p; ) {
       //      kprintf("Process %x selected stck %x\n", p, p->esp);
 
-      r = contextswitch( p );
-      switch( r ) {
-      case( SYS_CREATE ):
-        ap = (va_list)p->args;
-        fp = (funcptr)(va_arg( ap, int ) );
-        stack = va_arg( ap, int );
-	p->ret = create( fp, stack );
-        break;
-      case( SYS_YIELD ):
-        ready( p );
-        p = next();
-        break;
-      case( SYS_STOP ):
-        p->state = STATE_STOPPED;
-        p = next();
-        break;
-      case ( SYS_KILL ):
-        ap = (va_list)p->args;
-	p->ret = kill(p, va_arg( ap, int ) );
-	break;
-      case (SYS_CPUTIMES):
-	ap = (va_list) p->args;
-	p->ret = getCPUtimes(p, va_arg(ap, processStatuses *));
-	break;
-      case( SYS_PUTS ):
-	  ap = (va_list)p->args;
-	  str = va_arg( ap, char * );
-	  kprintf( "%s", str );
-	  p->ret = 0;
-	  break;
-      case( SYS_GETPID ):
-	p->ret = p->pid;
-	break;
-      case( SYS_SLEEP ):
-	ap = (va_list)p->args;
-	len = va_arg( ap, int );
-	sleep( p, len );
-	p = next();
-	break;
-      case( SYS_TIMER ):
-	tick();
-	//kprintf("T");
-	p->cpuTime++;
-	ready( p );
-	p = next();
-	end_of_intr();
-	break;
+    	r = contextswitch( p );
+      	switch( r ) {
+        case( SYS_CREATE ):
+          	ap = (va_list)p->args;
+          	fp = (funcptr)(va_arg( ap, int ) );
+  			stack = va_arg( ap, int );
+  			p->ret = create( fp, stack );
+  			break;
+        case( SYS_YIELD ):
+			ready( p );
+			p = next();
+			break;
+        case( SYS_STOP ):
+			p->state = STATE_STOPPED;
+			p = next();
+			break;
+        case ( SYS_KILL ):
+			ap = (va_list)p->args;
+			signal = va_arg(ap, int);
+			p->ret = kill(p, va_arg( ap, int ), signal);
+			break;
+        case (SYS_CPUTIMES):
+			ap = (va_list) p->args;
+			p->ret = getCPUtimes(p, va_arg(ap, processStatuses *));
+			break;
+        case( SYS_PUTS ):
+			ap = (va_list)p->args;
+			str = va_arg( ap, char * );
+			kprintf( "%s", str );
+			p->ret = 0;
+			break;
+        case( SYS_GETPID ):
+			p->ret = p->pid;
+			break;
+        case( SYS_SLEEP ):
+			ap = (va_list)p->args;
+			len = va_arg( ap, int );
+			sleep( p, len );
+			p = next();
+			break;
+        case( SYS_TIMER ):
+			tick();
+			//kprintf("T");
+			p->cpuTime++;
+			ready( p );
+			p = next();
+			end_of_intr();
+			break;
+    	case(SYS_SIGHANDLER):
+	      	ap = (va_list)p->args;
+	      	signal = (va_arg(ap, int));
+	      	new_handler = (va_arg( ap, void (*) (void*)));
+	      	old_handler = (va_arg( ap, void (**) (void*)));
+     	 	p->ret = sighandler(p, signal, new_handler, old_handler);
+      		break;
+    	case(SYS_SIGRET):
+	      	ap = (va_list)p->args;
+	      	p->esp = va_arg( ap, void* );
+	      	break;
+    	case(SYS_WAIT):  	
+	      	ap = (va_list)p->args;
+	      	p->ret = wait(va_arg( ap, int ),p);
+	      	break;  
+
       default:
-        kprintf( "Bad Sys request %d, pid = %d\n", r, p->pid );
-      }
+			kprintf( "Bad Sys request %d, pid = %d\n", r, p->pid );
+        }
     }
 
     kprintf( "Out of processes: dying\n" );
@@ -206,14 +226,14 @@ void removeFromReady(pcb * p) {
 //       and a signal needs to be marked for delivery. 
 //
 
-static int  kill(pcb *currP, int pid) {
+static int  kill(pcb *currP, int pid, int sig) {
   pcb * targetPCB;
   
-  kprintf("Current pid %d Killing %d\n", currP->pid, pid);
+  //kprintf("Current pid %d Killing %d\n", currP->pid, pid);
   
-  if (pid == currP->pid) {   // Trying to kill self
+/*  if (pid == currP->pid) {   // Trying to kill self
     return -2;
-  }
+  }*/
 
   // Don't let it kill the idle process, which from the user side
   // of things isn't a real process
@@ -225,19 +245,21 @@ static int  kill(pcb *currP, int pid) {
     
   if (!(targetPCB = findPCB( pid ))) {
     // kprintf("Target pid not found\n");
-    return -1;
+    return -512;
   }
 
-  if (targetPCB->state == STATE_STOPPED) {
+  if (sig < 0 || sig > 31) return -561;
+
+/*  if (targetPCB->state == STATE_STOPPED) {
     kprintf("Target pid was stopped\n");
     return  -1;
   }
-  
+  */
   // PCB has been found,  and the proces is either sleepign or running.
   // based on that information remove the process from 
   // the appropriate queue/list.
 
-  if (targetPCB->state == STATE_SLEEP) {
+/*  if (targetPCB->state == STATE_SLEEP) {
     // kprintf("Target pid %d sleeping\n", targetPCB->pid);
     removeFromSleep(targetPCB);
   }
@@ -246,15 +268,17 @@ static int  kill(pcb *currP, int pid) {
     // remove from ready queue
     // kprintf("Target pid %d is ready\n", targetPCB->pid);
     removeFromReady(targetPCB);
-  }
+  }*/
 
   // Check other states and do state specific cleanup before stopping
   // the process 
   // In the new version the process will not be marked as stopped but be 
   // put onto the readyq and a signal marked for delivery. 
 
-  targetPCB->state = STATE_STOPPED;
-  return 0;
+  //targetPCB->state = STATE_STOPPED;
+
+
+  return signal(pid, sig);
 }
   
 
@@ -295,4 +319,39 @@ int getCPUtimes(pcb *p, processStatuses *ps) {
   }
 
   return currentSlot;
+}
+
+
+extern pcb* enQ(pcb *head, pcb *proc) {
+    pcb *tmp = head;
+    if (!tmp) head = proc;
+    else {
+        while (tmp->next) tmp = tmp->next;
+        tmp->next = proc;
+    }
+    proc->next = NULL;
+    return head;
+}
+
+
+extern pcb* remove(pcb *head, pcb *proc) {
+    if(!head) return NULL;
+    if(proc == head) {
+        //removing the only proc in queue
+        if (!head->next) head = NULL;
+        else head = head->next;
+    } else {
+        pcb *prev = head;
+        pcb *tmp = head->next;
+        while (tmp) {
+            if (tmp == proc) {
+                prev->next = tmp->next;
+                tmp->next = NULL;
+                return head;
+            }
+            prev = tmp;
+            tmp = tmp->next;
+        }
+    }
+    return head;
 }
