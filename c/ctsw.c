@@ -15,26 +15,27 @@ static int                 trapNo;
 static long                args;
 
 int contextswitch( pcb *p ) {
-/**********************************/
-
+    /**********************************/
+    
     /* keep every thing on the stack to simplfiy gcc's gesticulations
      */
     int i = MAX_SIG;
     int sig = -1;
-    while (i-->0)
+    for (i; i>=0; i--) {
         if (p->sigmark[i]) {
             sig = i;
             break;
-        } 
-
-    if (sig) {
+        }
+    }
+    
+    if (sig != -1) {
         actualsignal(p, sig);
         p->sigmark[sig] = 0;
     }
-
+    
     saveESP = p->esp;
-    rc = p->ret; 
- 
+    rc = p->ret;
+    
     /* In the assembly code, switching to process
      * 1.  Push eflags and general registers on the stack
      * 2.  Load process's return value into eax
@@ -60,57 +61,57 @@ int contextswitch( pcb *p ) {
      * 6.  store the request code, trap flag and args into variables
      * 7.  return to system servicing code
      */
- 
+    
     __asm __volatile( " \
-        pushf \n\
-        pusha \n\
-        movl    rc, %%eax    \n\
-        movl    saveESP, %%edx    \n\
-        movl    %%esp, saveESP    \n\
-        movl    %%edx, %%esp \n\
-        movl    %%eax, 28(%%esp) \n\
-        popa \n\
-        iret \n\
-   _KeyboardEntryPoint:  \n\
-        cli  \n\
-        pusha  \n\
-        movl $2, %%ecx  \n\
-        jmp _CommonJumpPoint  \n\
-   _TimerEntryPoint: \n\
-        cli   \n\
-        pusha \n\
-        movl    $1, %%ecx \n\
-        jmp     _CommonJumpPoint \n \
-   _KernelEntryPoint: \n\
-        cli \n\
-        pusha  \n\
-        movl   $0, %%ecx \n\
-   _CommonJumpPoint: \n \
-        movl    %%eax, %%ebx \n\
-        movl    saveESP, %%eax  \n\
-        movl    %%esp, saveESP  \n\
-        movl    %%eax, %%esp  \n\
-        movl    %%ebx, 28(%%esp) \n\
-        movl    %%ecx, 24(%%esp)\n		\
-        movl    %%edx, 20(%%esp) \n\
-        popa \n\
-        popf \n\
-        movl    %%eax, rc \n\
-        movl    %%ecx, trapNo \n\
-        movl    %%edx, args \n\
-        "
-        : 
-        : 
-        : "%eax", "%ebx", "%edx"
-    );
-
+                     pushf \n\
+                     pusha \n\
+                     movl    rc, %%eax    \n\
+                     movl    saveESP, %%edx    \n\
+                     movl    %%esp, saveESP    \n\
+                     movl    %%edx, %%esp \n\
+                     movl    %%eax, 28(%%esp) \n\
+                     popa \n\
+                     iret \n\
+                     _KeyboardEntryPoint:  \n\
+                     cli  \n\
+                     pusha  \n\
+                     movl $2, %%ecx  \n\
+                     jmp _CommonJumpPoint  \n\
+                     _TimerEntryPoint: \n\
+                     cli   \n\
+                     pusha \n\
+                     movl    $1, %%ecx \n\
+                     jmp     _CommonJumpPoint \n \
+                     _KernelEntryPoint: \n\
+                     cli \n\
+                     pusha  \n\
+                     movl   $0, %%ecx \n\
+                     _CommonJumpPoint: \n \
+                     movl    %%eax, %%ebx \n\
+                     movl    saveESP, %%eax  \n\
+                     movl    %%esp, saveESP  \n\
+                     movl    %%eax, %%esp  \n\
+                     movl    %%ebx, 28(%%esp) \n\
+                     movl    %%ecx, 24(%%esp)\n		\
+                     movl    %%edx, 20(%%esp) \n\
+                     popa \n\
+                     popf \n\
+                     movl    %%eax, rc \n\
+                     movl    %%ecx, trapNo \n\
+                     movl    %%edx, args \n\
+                     "
+                     :
+                     :
+                     : "%eax", "%ebx", "%edx"
+                     );
+    
     /* save esp and read in the arguments
      */
     p->esp = saveESP;
     if( trapNo == 1 ) {
-    	/* return value (eax) must be restored, (treat it as return value) */
-    	p->ret = rc;
-    	rc = SYS_TIMER;
+        /* return value (eax) must be restored, (treat it as return value) */
+        p->ret = rc;
+        rc = SYS_TIMER;
     } else if (trapNo == 2) {
         p->ret = rc;
         rc = SYS_KB;
@@ -121,30 +122,28 @@ int contextswitch( pcb *p ) {
 }
 
 void contextinit( void ) {
-/*******************************/
-  kprintf("Context init called\n");
-  set_evec( KERNEL_INT, (int) _KernelEntryPoint );
-  set_evec( TIMER_INT,  (int) _TimerEntryPoint );
-  set_evec( KB_INT,  (int) _KeyboardEntryPoint );
-  initPIT( 100 );
-
+    /*******************************/
+    kprintf("Context init called\n");
+    set_evec( KERNEL_INT, (int) _KernelEntryPoint );
+    set_evec( TIMER_INT,  (int) _TimerEntryPoint );
+    set_evec( KB_INT,  (int) _KeyboardEntryPoint );
+    initPIT( 100 );
+    
 }
 
 
 void actualsignal(pcb *p, int sig) {
     
     unsigned long * ESP = p->esp;
-    *ESP = (unsigned long) p->ret;
-    ESP--; 
+    ESP-=1; 
     *ESP = (unsigned long) p->esp;      
-    ESP--;
+    ESP-=1;
     *ESP = (unsigned long) p->sig_table[sig];                     
-    ESP--;
+    ESP-=1;
     *ESP = 0;
     p->esp = ESP;
-
-    /* need a fake context */
-    struct context_frame *ctfm = (struct context_frame *)(p->esp - sizeof(struct context_frame)/sizeof(unsigned long));
+    
+    struct context_frame *ctfm = (struct context_frame *)(ESP - sizeof(struct context_frame));
     ctfm->edi = 0;
     ctfm->esi = 0;
     ctfm->ebp = 0;
@@ -156,6 +155,5 @@ void actualsignal(pcb *p, int sig) {
     ctfm->iret_eip = (unsigned long) &sigtramp;
     ctfm->iret_cs = getCS();
     ctfm->eflags = 0x00003200;
-    /* update esp value */
     p->esp = (unsigned long *) ctfm;
 }

@@ -4,266 +4,158 @@
 #include <xeroskernel.h>
 #include <xeroslib.h>
 
-/*void busy( void ) {
-  int myPid;
-  char buff[100];
-  int i;
-  int count = 0;
+int kill, tickn, shell_pid;
 
-  myPid = sysgetpid();
-  
-  for (i = 0; i < 10; i++) {
-    sprintf(buff, "My pid is %d\n", myPid);
-    sysputs(buff);
-    if (myPid == 2 && count == 1) syskill(3);
-    count++;
-    sysyield();
-  }
-}
-
-
-
-void sleep1( void ) {
-  int myPid;
-  char buff[100];
-
-  myPid = sysgetpid();
-  sprintf(buff, "Sleeping 1000 is %d\n", myPid);
-  sysputs(buff);
-  syssleep(1000);
-  sprintf(buff, "Awoke 1000 from my nap %d\n", myPid);
-  sysputs(buff);
-}
-
-
-
-void sleep2( void ) {
-  int myPid;
-  char buff[100];
-
-  myPid = sysgetpid();
-  sprintf(buff, "Sleeping 2000 pid is %d\n", myPid);
-  sysputs(buff);
-  syssleep(2000);
-  sprintf(buff, "Awoke 2000 from my nap %d\n", myPid);
-  sysputs(buff);
-}
-
-
-
-void sleep3( void ) {
-  int myPid;
-  char buff[100];
-
-  myPid = sysgetpid();
-  sprintf(buff, "Sleeping 3000 pid is %d\n", myPid);
-  sysputs(buff);
-  syssleep(3000);
-  sprintf(buff, "Awoke 3000 from my nap %d\n", myPid);
-  sysputs(buff);
-}
-
-*/
-
-
-
-
-
-/*
-void producer( void ) {
-
-    int         i;
-    char        buff[100];
-
-
-    // Sping to get some cpu time
-    for(i = 0; i < 100000; i++);
-
-    syssleep(3000);
-    for( i = 0; i < 20; i++ ) {
-      
-      sprintf(buff, "Producer %x and in hex %x %d\n", i+1, i, i+1);
-      sysputs(buff);
-      syssleep(1500);
-
-    }
-    for (i = 0; i < 15; i++) {
-      sysputs("P");
-      syssleep(1500);
-    }
-    sprintf(buff, "Producer finished\n");
-    sysputs( buff );
-    sysstop();
-}
-
-void consumer( void ) {
-
-    int         i;
-    char        buff[100];
-
-    for(i = 0; i < 50000; i++);
-    syssleep(3000);
-    for( i = 0; i < 10; i++ ) {
-      sprintf(buff, "Consumer %d\n", i);
-      sysputs( buff );
-      syssleep(1500);
-      sysyield();
-    }
-
-    for (i = 0; i < 40; i++) {
-      sysputs("C");
-      syssleep(700);
-    }
-
-    sprintf(buff, "Consumer finished\n");
-    sysputs( buff );
-    sysstop();
-}
-
-void     root( void ) {
-
-    char  buff[100];
-    int pids[5];
-    int proc_pid, con_pid;
-    int i;
-
-    sysputs("Root has been called\n");
-
-
-    // Test for ready queue removal. 
-   
-    proc_pid = syscreate(&busy, 1024);
-    con_pid = syscreate(&busy, 1024);
-    sysyield();
-    syskill(proc_pid);
-    sysyield();
-    syskill(con_pid);
-
+extern void root(void) {
+    static char *username = "cs415";
+    static char *password = "EveryonegetsanA";
     
-    for(i = 0; i < 5; i++) {
-      pids[i] = syscreate(&busy, 1024);
+    for(;;) {
+        char user[10];
+        char pw[40];
+        
+        sysputs("\nWelcome to Xeros - an experimental OS\n");
+        
+        int fd = sysopen(0);
+        
+        sysputs("Username: \n");
+        sysread(fd, user, 10);
+        
+        sysioctl(fd, ECHO_OFF);
+        
+        sysputs("Password: \n");
+        sysread(fd, pw, 40);
+        
+        sysclose(fd);
+        
+        if (strcmp(user, username) == 0 &&
+            strcmp(pw, password) == 0) {
+            shell_pid = syscreate(&shell, PROC_STACK);
+            syswait(shell_pid);
+        }
     }
+}
 
-    sysyield();
+
+void shell(void) {
+    char buffer[100];
+    int fd = sysopen(1);
     
-    syskill(pids[3]);
-    sysyield();
-    syskill(pids[2]);
-    syskill(pids[4]);
-    sysyield();
-    syskill(pids[0]);
-    sysyield();
-    syskill(pids[1]);
-    sysyield();
-
-    syssleep(8000);;
-
-
-
-    kprintf("***********Sleeping no kills *****\n");
-    // Now test for sleeping processes
-    pids[0] = syscreate(&sleep1, 1024);
-    pids[1] = syscreate(&sleep2, 1024);
-    pids[2] = syscreate(&sleep3, 1024);
-
-    sysyield();
-    syssleep(8000);;
-
-
-
-    kprintf("***********Sleeping kill 2000 *****\n");
-    // Now test for removing middle sleeping processes
-    pids[0] = syscreate(&sleep1, 1024);
-    pids[1] = syscreate(&sleep2, 1024);
-    pids[2] = syscreate(&sleep3, 1024);
-
-    syssleep(110);
-    syskill(pids[1]);
-    syssleep(8000);;
-
-    kprintf("***********Sleeping kill last 3000 *****\n");
-    // Now test for removing last sleeping processes
-    pids[0] = syscreate(&sleep1, 1024);
-    pids[1] = syscreate(&sleep2, 1024);
-    pids[2] = syscreate(&sleep3, 1024);
-
-    sysyield();
-    syskill(pids[2]);
-    syssleep(8000);;
-
-    kprintf("***********Sleeping kill first process 1000*****\n");
-    // Now test for first sleeping processes
-    pids[0] = syscreate(&sleep1, 1024);
-    pids[1] = syscreate(&sleep2, 1024);
-    pids[2] = syscreate(&sleep3, 1024);
-
-    syssleep(100);
-    syskill(pids[0]);
-    syssleep(8000);;
-
-    // Now test for 1 process
-
-
-    kprintf("***********One sleeping process, killed***\n");
-    pids[0] = syscreate(&sleep2, 1024);
-
-    sysyield();
-    syskill(pids[0]);
-    syssleep(8000);;
-
-    kprintf("***********One sleeping process, not killed***\n");
-    pids[0] = syscreate(&sleep2, 1024);
-
-    sysyield();
-    syssleep(8000);;
-
-
-
-    kprintf("***********Three sleeping processes***\n");    // 
-    pids[0] = syscreate(&sleep1, 1024);
-    pids[1] = syscreate(&sleep2, 1024);
-    pids[2] = syscreate(&sleep3, 1024);
-
-
-    // Producer and consumer started too
-    proc_pid = syscreate( &producer, 4096 );
-    con_pid = syscreate( &consumer, 4096 );
-    sprintf(buff, "Proc pid = %d Con pid = %d\n", proc_pid, con_pid);
-    sysputs( buff );
-
-
-    processStatuses psTab;
-    int procs;
-    
-
-
-
-    syssleep(500);
-    procs = sysgetcputimes(&psTab);
-
-    for(int j = 0; j <= procs; j++) {
-      sprintf(buff, "%4d    %4d    %10d\n", psTab.pid[j], psTab.status[j], 
-	      psTab.cpuTime[j]);
-      kprintf(buff);
+    for(;;) {
+        sysputs("\n> ");
+        
+        int b = sysread(fd, buffer, 100);
+        if (!b) break;
+        
+        char command[50];
+        char arg[50];
+        int ap = endinand(buffer, command, arg);
+        
+        int wait = 1;
+        int pid;
+        
+        if(!strcmp("ps", command)) {
+            processStatuses ps;
+            char str[80];
+            int t = sysgetcputimes(&ps);
+            sysputs("\nPID | State     | Time \n");
+            for (int i = 0; i <= t; i++) {
+                sprintf(str, "%4d  %10s  %8d\n", ps.pid[i],
+                        ps.status[i], ps.cpuTime[i]);
+                sysputs(str);
+            }
+        }
+        else if(!strcmp("ex", command)) break;
+        else if(!strcmp("k", command)) {
+            kill = atoi(arg);
+            if (!findPCB(kill)) sysputs("No such process\n");
+            else syskill(kill, 31);
+        }
+        else if(!strcmp("a", command)) {
+            tickn = atoi(arg);
+            pid = syscreate(&a, PROC_STACK);
+            wait = !ap;
+        }
+        else if(!strcmp("t", command) && !ap)
+            pid = syscreate(&t, PROC_STACK);
+        else {
+            sysputs("Command not found\n");
+            wait = 0;
+        }
+        
+        if (wait) syswait(pid);
     }
+}
 
 
-    syssleep(10000);
-    procs = sysgetcputimes(&psTab);
-
-    for(int j = 0; j <= procs; j++) {
-      sprintf(buff, "%4d    %4d    %10d\n", psTab.pid[j], psTab.status[j], 
-	      psTab.cpuTime[j]);
-      kprintf(buff);
-    }
-
-    sprintf(buff, "Root finished\n");
-    sysputs( buff );
-    sysstop();
+int endinand(char *buffer, char *command, char *arg) {
+    int ampersand = 0;
+    int len = 0;
     
-    for( ;; ) {
-     sysyield();
+    while (*buffer != '\0' && *buffer != ' ' && *buffer != '&') {
+        *command = *buffer;
+        command++;
+        buffer++;
+        len++;
     }
     
+    *command = '\0';
+    
+    // get to first argument
+    while ((*buffer != '\0') && (*buffer == ' ' || *buffer == '&')) {
+        buffer++;
+        len++;
+    }
+    
+    // read argument
+    while (*buffer != '\0' && *buffer != ' ' && *buffer != '&') {
+        *arg = *buffer;
+        arg++;
+        buffer++;
+        len++;
+    }
+    
+    *arg = '\0';
+    
+    // go to the end of the command line, then we'll read to see if we hit a &
+    while(*buffer != '\0') {
+        buffer++;
+        len++;
+    }
+    
+    len--;
+    buffer--;
+    while((len > 0) && (*buffer == ' ' || *buffer == '&')) {
+        if (*buffer == '&') {
+            ampersand = 1;
+        }
+        if (*buffer != ' ') {
+            break;
+        }
+        buffer--;
+        len--;
+    }
+    
+    return ampersand;
 }
-*/
+
+void ahandler(void) {
+    funcptr1 old;
+    sysputs("ALARM ALARM ALARM\n");
+    syssighandler(15, NULL, &old);
+}
+
+void a(void) {
+    funcptr1 old;
+    syssleep(tickn*10);
+    syssighandler(15, (funcptr1)&ahandler, &old);
+    syskill(shell_pid, 15);
+}
+
+void t(void) {
+    for(;;) {
+        sysputs("T\n");
+        syssleep(10000);
+    }
+}
+

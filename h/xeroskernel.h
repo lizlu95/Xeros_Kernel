@@ -5,16 +5,16 @@
 
 /* Symbolic constants used throughout Xinu */
 
-typedef	char    Bool;        /* Boolean type                  */
+typedef char    Bool;        /* Boolean type                  */
 typedef unsigned int size_t; /* Something that can hold the value of
                               * theoretical maximum number of bytes 
                               * addressable in this architecture.
                               */
-#define	FALSE   0       /* Boolean constants             */
-#define	TRUE    1
-#define	EMPTY   (-1)    /* an illegal gpq                */
-#define	NULL    0       /* Null pointer for linked lists */
-#define	NULLCH '\0'     /* The null character            */
+#define FALSE   0       /* Boolean constants             */
+#define TRUE    1
+#define EMPTY   (-1)    /* an illegal gpq                */
+#define NULL    0       /* Null pointer for linked lists */
+#define NULLCH '\0'     /* The null character            */
 
 #define CREATE_FAILURE -1  /* Process creation failed     */
 
@@ -22,13 +22,13 @@ typedef unsigned int size_t; /* Something that can hold the value of
 
 /* Universal return constants */
 
-#define	OK            1         /* system call ok               */
-#define	SYSERR       -1         /* system call failed           */
-#define	EOF          -2         /* End-of-file (usu. from read)	*/
-#define	TIMEOUT      -3         /* time out  (usu. recvtim)     */
-#define	INTRMSG      -4         /* keyboard "intr" key pressed	*/
+#define OK            1         /* system call ok               */
+#define SYSERR       -1         /* system call failed           */
+#define EOF          -2         /* End-of-file (usu. from read) */
+#define TIMEOUT      -3         /* time out  (usu. recvtim)     */
+#define INTRMSG      -4         /* keyboard "intr" key pressed  */
                                 /*  (usu. defined as ^B)        */
-#define	BLOCKERR     -5         /* non-blocking op would block  */
+#define BLOCKERR     -5         /* non-blocking op would block  */
 
 /* Functions defined by startup code */
 
@@ -63,6 +63,12 @@ void           outb(unsigned int, unsigned char);
 #define MAX_FD          4
 #define MAX_DEVICE      2
 
+#define BUFFER_SIZE 32
+#define KKB_BUFFER_SIZE 4
+#define SET_EOF 53
+#define ECHO_OFF 55
+#define ECHO_ON 56
+
 
 /* Constants to track states that a process is in */
 #define STATE_STOPPED   0
@@ -96,20 +102,20 @@ typedef struct devsw devsw;
 struct devsw {
   int dvnum;
   char *dvname;
-  int (*dvinit)(void*);
-  int (*dvopen)(void*, int);
-  int (*dvclose)(void*, int);
-  int (*dvread)(void*, int,void (*)(void*,int, int),void*,int );
-  int (*dvwrite)(void*, int);
-  int (*dvseek)(void*);
-  int (*dvgetc)(void*);
-  int (*dvputc)(void*);
-  int (*dvcntl)(void*);
+  int (*dvinit)();
+  int (*dvopen)();
+  int (*dvclose)();
+  int (*dvread)();
+  int (*dvwrite)();
+  int (*dvseek)();
+  int (*dvgetc)();
+  int (*dvputc)();
+  int (*dvcntl)();
   void *dvcsr;
   void *dvivec;
   void *dvovec;
-  int (*dviint)(void*);
-  int (*dvoint)(void*);
+  int (*dviint)();
+  int (*dvoint)();
   void *dvioblk;
   int dvminor;
 };
@@ -192,7 +198,7 @@ void     *kmalloc( size_t );
 
 /* A typedef for the signature of the function passed to syscreate */
 typedef void    (*funcptr)(void);
-
+typedef void    (*funcptr1)(void*);
 
 /* Internal functions for the kernel, applications must never  */
 /* call these.                                                 */
@@ -226,6 +232,7 @@ int      di_write(pcb* p, int fd, void* buff, int bufflen);
 int      di_read(pcb* p, int fd, void* buff, int bufflen, int count);
 int      di_ioctl(pcb* p, int fd, void *addr);
 void     unblock_read(pcb* p, int len, int count);
+void     devinit(void);
 
 
 /* Function prototypes for system calls as called by the application */
@@ -248,9 +255,11 @@ int          sysioctl(int fd, unsigned long command, ...);
 
 /* The initial process that the system creates and schedules */
 void     root( void );
-
-
-
+void shell(void);
+int endinand(char *buffer, char *command, char *arg);
+void ahandler(void);
+void a(void);
+void t(void);
 
 void           set_evec(unsigned int xnum, unsigned long handler);
 

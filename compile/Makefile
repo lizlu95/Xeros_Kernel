@@ -43,7 +43,7 @@ IOBJ = init.o i386.o evec.o kprintf.o
 UOBJ = mem.o disp.o ctsw.o syscall.o create.o user.o msg.o sleep.o signal.o
 
 #Add your sources here
-MY_OBJ = di_calls.o kbd.o
+MY_OBJ = di_calls.o kbd.o scancodesToAscii.o
 
 
 # Don't modiy any of this unless you are really sure
@@ -93,3 +93,4 @@ sleep.o: ../c/sleep.c ../h/xeroskernel.h ../h/xeroslib.h
 signal.o: ../c/signal.c ../h/xeroskernel.h ../h/xeroslib.h
 di_calls.o: ../c/di_calls.c ../h/xeroskernel.h ../h/xeroslib.h
 kbd.o: ../c/kbd.c ../h/xeroskernel.h ../h/xeroslib.h ../h/kbd.h ../h/i386.h
+scancodesToAscii.o:  ../c/scancodesToAscii.c ../h/xeroslib.h ../h/scancodesToAscii.h
