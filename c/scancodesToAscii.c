@@ -55,7 +55,7 @@ unsigned int kbtoa( unsigned char code )
       state &= ~INSHIFT;
       break;
     case CAPSL:
-      kprintf("Capslock off detected\n");
+      //kprintf("Capslock off detected\n");
       state &= ~CAPSLOCK;
       break;
     case LCTL:
@@ -75,11 +75,11 @@ unsigned int kbtoa( unsigned char code )
   case LSHIFT:
   case RSHIFT:
     state |= INSHIFT;
-    kprintf("shift detected!\n");
+    //kprintf("shift detected!\n");
     return NOCHAR;
   case CAPSL:
     state |= CAPSLOCK;
-    kprintf("Capslock ON detected!\n");
+    //kprintf("Capslock ON detected!\n");
     return NOCHAR;
   case LCTL:
     state |= INCTL;

@@ -3,3 +3,7 @@ assignment. If you know something doesn't work or you assignment is incomplete d
 it here so that the markers don't waste time trying to figure out if there is 
 some sort of build problem or issue when it is simply the case that things aren't
 working.
+
+- shell commands sometimes won't recognize valid ones after a few tries,
+	but first time always works
+- command "a number" does not print "ALARM" but only restarts root

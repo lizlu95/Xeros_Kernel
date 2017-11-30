@@ -24,9 +24,9 @@ int sighandler(pcb* p, int signal, void (*newhandler) (void*), void (**oldHandle
 int wait(int pid, pcb *p) {
 
 	pcb* waitp = findPCB(pid);
-	if(pid == 0 || waitp == NULL) return -1;
-	else{	
-		removeFromReady(p);
+	if (pid == 0 || waitp == NULL) return -1;
+	else {
+		//removeFromReady(p);
 		waitp->blockQ = enQ(waitp->blockQ, p);
 		p->state = STATE_BLOCK;
 		p->waitfor = waitp;

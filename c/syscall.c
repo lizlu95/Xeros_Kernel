@@ -101,6 +101,9 @@ int sysread(int fd, void *buff, int bufflen) {
 }
 
 int sysioctl(int fd, unsigned long command, ...) {
-    unsigned long *addr = &command;
-    return syscall(SYS_IOCTL, fd, addr);
+    va_list ap;
+    va_start(ap, command);
+    int ret = syscall(SYS_IOCTL, fd, command, (unsigned long)ap);
+    va_end(ap);
+    return ret;
 }

@@ -7,8 +7,8 @@
 int kill, tickn, shell_pid;
 
 extern void root(void) {
-    static char *username = "cs415";
-    static char *password = "EveryonegetsanA";
+    char *username = "cs415";
+    char *password = "EveryonegetsanA";
     
     for(;;) {
         char user[10];
@@ -17,19 +17,18 @@ extern void root(void) {
         sysputs("\nWelcome to Xeros - an experimental OS\n");
         
         int fd = sysopen(0);
-        
-        sysputs("Username: \n");
+        //sysioctl(fd, ECHO_ON);
+        sysputs("Username: ");
         sysread(fd, user, 10);
-        
         sysioctl(fd, ECHO_OFF);
         
-        sysputs("Password: \n");
+        sysputs("\nPassword: ");
         sysread(fd, pw, 40);
-        
         sysclose(fd);
         
-        if (strcmp(user, username) == 0 &&
-            strcmp(pw, password) == 0) {
+        if (strncmp(user, username, 5) == 0 &&
+            strncmp(pw, password, 15) == 0) {
+            sysputs("Success!\n");
             shell_pid = syscreate(&shell, PROC_STACK);
             syswait(shell_pid);
         }
@@ -49,8 +48,13 @@ void shell(void) {
         
         char command[50];
         char arg[50];
-        int ap = endinand(buffer, command, arg);
-        
+        checkcmd(buffer,100, command, 50);
+
+        int ap;
+        for (ap=0; ap<50; ap++)
+            if (buffer[ap] == '&') break;
+        ap = (ap == b-2) ? 1:0;
+
         int wait = 1;
         int pid;
         
@@ -60,16 +64,28 @@ void shell(void) {
             int t = sysgetcputimes(&ps);
             sysputs("\nPID | State     | Time \n");
             for (int i = 0; i <= t; i++) {
-                sprintf(str, "%4d  %10s  %8d\n", ps.pid[i],
-                        ps.status[i], ps.cpuTime[i]);
+                int s = ps.status[i];
+                char *state;
+                switch(s) {
+                    case STATE_STOPPED: state = "STOPPED"; break;
+                    case STATE_READY: state = "READY"; break;
+                    case STATE_SLEEP: state = "SLEEPING"; break;
+                    case STATE_RUNNING: state = "RUNNING"; break;
+                    case STATE_BLOCK: state = "BLOCKED"; break;
+                    default: break;
+                }
+                sprintf(str, "%4d  %10s  %6d\n", ps.pid[i],
+                        state, ps.cpuTime[i]);
                 sysputs(str);
             }
+            continue;
         }
         else if(!strcmp("ex", command)) break;
         else if(!strcmp("k", command)) {
             kill = atoi(arg);
             if (!findPCB(kill)) sysputs("No such process\n");
             else syskill(kill, 31);
+            continue;
         }
         else if(!strcmp("a", command)) {
             tickn = atoi(arg);
@@ -81,63 +97,32 @@ void shell(void) {
         else {
             sysputs("Command not found\n");
             wait = 0;
+            continue;
         }
         
         if (wait) syswait(pid);
     }
 }
 
+void checkcmd(char * buffer, int bufflen, char *command, int command_len){
+    int i,j;
+    for (i=0; i<bufflen; i++)
+        if (buffer[i] == ' ') break;
+    for (j=0; i<bufflen; i++)
+        if (buffer[i] == '\n') break;
 
-int endinand(char *buffer, char *command, char *arg) {
-    int ampersand = 0;
-    int len = 0;
-    
-    while (*buffer != '\0' && *buffer != ' ' && *buffer != '&') {
-        *command = *buffer;
-        command++;
-        buffer++;
-        len++;
-    }
-    
-    *command = '\0';
-    
-    // get to first argument
-    while ((*buffer != '\0') && (*buffer == ' ' || *buffer == '&')) {
-        buffer++;
-        len++;
-    }
-    
-    // read argument
-    while (*buffer != '\0' && *buffer != ' ' && *buffer != '&') {
-        *arg = *buffer;
-        arg++;
-        buffer++;
-        len++;
-    }
-    
-    *arg = '\0';
-    
-    // go to the end of the command line, then we'll read to see if we hit a &
-    while(*buffer != '\0') {
-        buffer++;
-        len++;
-    }
-    
-    len--;
-    buffer--;
-    while((len > 0) && (*buffer == ' ' || *buffer == '&')) {
-        if (*buffer == '&') {
-            ampersand = 1;
+    if (i <= command_len-1 || j <= command_len-1) {
+        if (i < j) strncpy(command, buffer, i);
+        else strncpy(command, buffer, j);  
+
+        if (command[i-1] == '\n') {
+            kprintf("i'm here");
+            command[i-1] = '\0';
         }
-        if (*buffer != ' ') {
-            break;
-        }
-        buffer--;
-        len--;
+        command[i+1] = '\0';        
     }
-    
-    return ampersand;
 }
+
 
 void ahandler(void) {
     funcptr1 old;

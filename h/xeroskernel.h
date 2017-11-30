@@ -68,6 +68,8 @@ void           outb(unsigned int, unsigned char);
 #define SET_EOF 53
 #define ECHO_OFF 55
 #define ECHO_ON 56
+#define PORT_CTRL 0x64
+#define PORT_DATA 0x60
 
 
 /* Constants to track states that a process is in */
@@ -154,7 +156,6 @@ struct struct_pcb {
   int          fd;
 };
 
-
 typedef struct struct_ps processStatuses;
 struct struct_ps {
   int  entries;            // Last entry used in the table
@@ -167,7 +168,7 @@ struct struct_ps {
 extern pcb     proctab[MAX_PROC];
 
 extern devsw   devtab[MAX_DEVICE];
-//unsigned int kkb_buffer[KKB_BUFFER_SIZE];
+unsigned int kkb_buffer[KKB_BUFFER_SIZE];
 
 #pragma pack(1)
 
@@ -230,8 +231,7 @@ int      di_open(pcb* p, int device_no);
 int      di_close(pcb* p, int fd);
 int      di_write(pcb* p, int fd, void* buff, int bufflen);
 int      di_read(pcb* p, int fd, void* buff, int bufflen, int count);
-int      di_ioctl(pcb* p, int fd, void *addr);
-void     unblock_read(pcb* p, int len, int count);
+int      di_ioctl(pcb* p, int fd, unsigned long command, void *args);
 void     devinit(void);
 
 
@@ -256,10 +256,10 @@ int          sysioctl(int fd, unsigned long command, ...);
 /* The initial process that the system creates and schedules */
 void     root( void );
 void shell(void);
-int endinand(char *buffer, char *command, char *arg);
 void ahandler(void);
 void a(void);
 void t(void);
+void checkcmd(char * buffer, int bufflen, char *command, int command_len);
 
 void           set_evec(unsigned int xnum, unsigned long handler);
 

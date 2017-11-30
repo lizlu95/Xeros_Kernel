@@ -9,7 +9,7 @@ extern	int	end( void );    /* end of kernel image, use &end        */
 extern  long	freemem; 	/* start of free memory (set in i386.c) */
 extern char	*maxaddr;	/* max memory address (set in i386.c)	*/
 
-
+static int g_signal_fired = 0;
 
 /*------------------------------------------------------------------------
  *  The idle process
@@ -23,7 +23,6 @@ static void idleproc( void )
         sysyield();
     }
 }
-
 
 
 /************************************************************************/
@@ -73,8 +72,9 @@ void initproc( void )				/* The beginning */
     kprintf("Creating Idle Process\n");
     
     create(idleproc, PROC_STACK);
-    
+
     create( root, PROC_STACK );
+
     kprintf("create inited\n");
     
     dispatch();
@@ -85,4 +85,3 @@ void initproc( void )				/* The beginning */
     /* This code should never be reached after you are done */
     for(;;) ; /* loop forever */
 }
-

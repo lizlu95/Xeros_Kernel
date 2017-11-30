@@ -1,26 +1,47 @@
-/* kbd.h 
+/* kbd.h
  */
 
 #include <xeroskernel.h>
 
-#ifndef KBD_H
-#define KBD_H
+#define DEFEOF ((char)0x04)
+#define PROCARR (MAX_PROC)
+#define KBBUFSIZE (4 + 1)
 
-/* ascii */
-#define ENTER 0x0A
-#define EOT 0x04
-#define BLOCK_PROC -3
+typedef struct kbdproc {
+    pcb *pcb;
+    void *buf;
+    int buflen;
+    int i;
+    int waiting;
+} kbdproc_t;
+
+typedef struct kbd_dvioblk {
+    int echof;
+} kbd_dvioblk_t;
+
+static int keysf = 0;
+static char kbbuffer[KBBUFSIZE] = {0};
+static int buffer_head = 0;
+static int buffer_tail = 0;
+static char eof;
+static char echof;
+static kbdproc_t procarr[PROCARR];
+static int taskcnt = 0;
+static int count = 0;
+static int type = 0;
+static int done = 0;
+
+static int set_eof(void *args);
+static void get_buf(void);
+static void unblock(kbdproc_t *task);
+static void get_char(char c);
+static void handleeof(void);
 
 
-extern int kbwrite(void* buff, int bufflen);
-extern int kbread(void* buff, int bufflen,void (*cb_func)(void*,int, int),void* p,int count);
-extern int kbioctl(void* addr);
-extern int kbopen(pcb* p, int fd);
-extern int kbclose(pcb* p, int fd);
+int kbinit(void);
+int kbopen(pcb *proc, void *dvioblk);
+int kbclose(pcb *proc, void *dvioblk);
+int kbread(pcb *proc, void *dvioblk, void* buf, int buflen);
+int kbwrite(pcb *proc, void *dvioblk, void* buf, int buflen);
+int kbioctl(pcb *proc, void *dvioblk, unsigned long command, void *args);
 void kbd_int_handler(void);
-extern unsigned char read_char(void);
-void save_kchar(unsigned char value);
-void save_user_buff(void);
-void cleanup (void); 
-
-#endif

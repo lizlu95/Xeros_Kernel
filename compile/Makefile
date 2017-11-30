@@ -45,7 +45,6 @@ UOBJ = mem.o disp.o ctsw.o syscall.o create.o user.o msg.o sleep.o signal.o
 #Add your sources here
 MY_OBJ = di_calls.o kbd.o scancodesToAscii.o
 
-
 # Don't modiy any of this unless you are really sure
 all: xeros 
 

@@ -1,234 +1,202 @@
-/* kbd.c : keyboard device
- */
+/* kbd.c: Keyboard device
+*/
 
-#include <i386.h>
-#include <xeroskernel.h>
+#include <stdarg.h>
 #include <xeroslib.h>
 #include <kbd.h>
-#include <stdarg.h>
+#include <i386.h>
 #include <scancodesToAscii.h>
 
-static unsigned char VALUE; /*used to store value read from keyboard every interrupt */
-unsigned int ascii_value;
-unsigned int minor;/*minor device number*/
-unsigned int major;/*major device number*/
-int EOF_flag;/* indicates if EOF key was pressed*/
-int kbuff_head = -2;/*circular q head, remove from here*/
-int kbuff_tail = -1;/*circular q tail, add from here*/
-void (*call_back)(void*,int,int) = NULL;/* function pointer passed in from kbd_read*/
-struct pcb* argP = NULL;/* process pointer passed in from kbd_read*/
 
-char* user_buffer = NULL;/* user buffer pointer*/
-int user_bufflen = 0; /* bytes the user wants to read*/
-int trans_count = 0;/*current position in user buffer,number of bytes read*/
-char kkb_buffer[100];
-unsigned char EOF_MASK = 0x04; /*used for ioctl 53 */
-
-
-int kbopen(pcb *p, int fd) {
-    enable_irq(1,0);
-    major = p->fd_table[fd].major;
-    minor = p->fd_table[fd].minor;
-    return 0;
-}
-
-int kbclose(pcb *p, int fd) {
-    enable_irq(1,1);
-    cleanup();
-    return 0;
-}
-
-int kbwrite(void *buff, int bufflen) {
-    return -1;
-}
-
-int kbread(void *buff, int bufflen, void (*func)(void*,int,int), void* p, int count) {
-    trans_count = count;
+int kbinit(void) {
+    int i;
     
-    if (!user_buffer) {
-        user_buffer = buff;
-        user_bufflen = bufflen;
-        call_back = func;
-        argP = p;
+    count = 0;
+    done = 0;
+    buffer_head = 0;
+    buffer_tail = 0;
+    taskcnt = 0;
+    
+    for (i = 0; i < PROCARR; i++) {
+        procarr[i].waiting = 0;
     }
     
-    if (EOF_flag) return 0;
+    inb(PORT_DATA);
+    inb(PORT_CTRL);
+    return 0;
+}
+
+int kbopen(pcb *proc, void *dvioblk) {
+    int echo_flag = ((kbd_dvioblk_t*)dvioblk)->echof;
     
-    save_user_buff();
+    if (count > 0) {
+        if (type != echo_flag) return -1;
+        
+        count++;
+        return 0;
+    }
     
-    if(trans_count == user_bufflen) {
-        trans_count = 0;
-        return user_bufflen;
-    } else if (trans_count < user_bufflen)
-        return BLOCK_PROC;
+    count = 1;
+    type = echo_flag;
+    done = 0;
+    buffer_head = 0;
+    buffer_tail = 0;
+    keysf = 0;
+    eof = DEFEOF;
+    echof = echo_flag;
+    
+    enable_irq(1,0);
+    return 0;
+}
+
+int kbclose(pcb *proc, void *dvioblk) {
+    if (count < 0) return -1;
+
+    count--;
+    if (count == 0) enable_irq(1,1);
+    
+    if (procarr[proc->pid % PROCARR].waiting) {
+        taskcnt--;
+    }
+    
+    procarr[proc->pid % PROCARR].waiting = 0;
+    return 0;
+}
+
+int kbread(pcb *proc, void *dvioblk, void* buf, int buflen) {
+    
+    kbdproc_t *task = &procarr[proc->pid % PROCARR];
+    taskcnt++;
+    
+    task->pcb = proc;
+    task->buf = buf;
+    task->i = 0;
+    task->buflen = buflen;
+    task->waiting = 1;
+    get_buf();
+    if (task->i == buflen) {
+        return buflen;
+    }
+    
+    if (done) return task->i;
+    return BLOCKERR;
+}
+
+int kbwrite(pcb *proc, void *dvioblk, void* buf, int buflen) {
     return -1;
 }
 
-int kbioctl(void* addr) {
-    va_list ap = (va_list)addr;
-    int command = va_arg(ap, int);
-    unsigned long *outc;
-    
-    int result = 0;
+int kbioctl(pcb *proc, void *dvioblk, unsigned long command, void *args) {
     
     switch(command) {
-        case SET_EOF :
-            outc = (unsigned long *)va_arg(ap, int);
-            
-            char temp = *outc;
-            *outc = EOF_MASK;
-            EOF_MASK = temp;
-            break;
-        case ECHO_OFF :
-            minor = 0;
-            break;
-        case ECHO_ON :
-            minor = 1;
-            break;
-        default :
-            result = -1;
-            break;
+        case SET_EOF:
+            return set_eof(args);
+        case ECHO_ON:
+            echof = 1;
+            return 0;
+        case ECHO_OFF:
+            echof = 0;
+            return 0;
+        default:
+            return SYSERR;
     }
-    return result;
 }
 
+
+static int set_eof(void *args) {
+    va_list ap;
+    
+    if (args == NULL) {
+        return SYSERR;
+    }
+    
+    ap = (va_list)args;
+    eof = (char)va_arg(ap, int);
+    
+    return 0;
+}
 
 void kbd_int_handler(void) {
+    int hasData;
+    int data;
+    char c = 0;
     
-    /* read from keyboard input port*/
-    unsigned char in_value = read_char();
-    /* if no EOF key detected*/
-    if(!EOF_flag){
+    hasData = inb(PORT_CTRL) & 0x01;
+    data = inb(PORT_DATA) & 0xff;
+    
+    if (hasData) {
+        c = kbtoa(data);
         
-        /* if it's not key up*/
-        if(in_value != NOCHAR && in_value != 0){
+        if (c != 0) {
+            if (echof && c != eof) kprintf("%c", c);
             
-            /*if is echo version, print*/
-            if(minor == 1){
-                kprintf("%c",in_value);
+            if (taskcnt > 0) get_char(c);
+            else if (((buffer_head + 1) % KBBUFSIZE) != buffer_tail) {
+                kbbuffer[buffer_head] = c;
+                buffer_head = (buffer_head + 1) % KBBUFSIZE;
             }
-            
-            /* if there is process wating*/
-            if(user_buffer != NULL){
-                /* write character to user buffer*/
-                user_buffer[trans_count] = (char)in_value;
-                // increment counter
-                trans_count++;
-                
-                /*check if read is complete*/
-                if(trans_count == user_bufflen){
-                    /* reset counter and user buffer*/
-                    trans_count = 0;
-                    user_buffer = NULL;
-                    /*unblock process*/
-                    call_back(argP,user_bufflen, trans_count);
-                    
-                }
-                /* if ENTER detected */
-                if(in_value == ENTER){
-                    /* saves the current count number*/
-                    int tmp = trans_count;
-                    /* reset counter and user buffer */
-                    trans_count = 0;
-                    user_buffer = NULL;
-                    /* unblock process */
-                    call_back(argP,tmp, trans_count);
-                }
-            }
-            else{
-                /*block queue is empty,save to kernel buffer*/
-                save_kchar(in_value);
-            }
-        }
-    }
-    else{/* EOF key is detected, return with 0*/
-        if(call_back != NULL){
-            call_back(argP,0, trans_count);
         }
     }
 }
 
-extern unsigned char read_char(void) {
-    __asm __volatile( " \
-                     pusha  \n\
-                     in  $0x60, %%al  \n\
-                     movb %%al, VALUE  \n\
-                     popa  \n\
-                     "
-                     :
-                     :
-                     : "%eax"
-                     );
-    /* change the scancode back to ASCII */
-    ascii_value = kbtoa(VALUE);
-    if(ascii_value == EOT || ascii_value == EOF_MASK){
-        /*set EOF flag*/
-        EOF_flag = TRUE;
-        
-    }
+static void get_buf(void) {
+    char c;
     
-    return ascii_value;
+    while (taskcnt > 0 &&
+        buffer_tail != buffer_head) {
+            
+        c = kbbuffer[buffer_tail];
+        get_char(c);
+        buffer_tail = (buffer_tail + 1) % KBBUFSIZE;
+    }
 }
 
-void save_kchar(unsigned char value){
-    
-    /*if kernel buff is empty*/
-    if(kbuff_head == -2 && kbuff_tail == -1){
-        kbuff_head = 0;
-        kbuff_tail = 0;
-        /*write value in*/
-        kkb_buffer[kbuff_tail]=value;
-        /* increment tail pointer*/
-        kbuff_tail++;
-    }
-    /*if kernel buffer is not full yet,add value*/
-    else if(kbuff_head != kbuff_tail){
-        kkb_buffer[kbuff_tail] = value;
-        /* increment tail index*/
-        kbuff_tail++;
-        kbuff_tail = (kbuff_tail) % KKB_BUFFER_SIZE;
-    }
-    
-}
 
-void save_user_buff(void) {
-    /*get how much more the process want to read*/
-    int left_to_read = user_bufflen - trans_count;
+static void get_char(char c) {
     int i;
-    /* for each desire byte to read*/
-    for (i = 0; i < left_to_read; i++){
-        /* if kernel buffer is not empty*/
-        if(kbuff_head != -2 && kbuff_tail != -1){
-            /* copy the value from kernel buffer to user buffer*/
-            user_buffer[trans_count] = kkb_buffer[kbuff_head];
-            /* increment user buffer counter*/
-            trans_count++;
-            /* increment kernel head index */
-            kbuff_head ++;
-            kbuff_head = (kbuff_head)%KKB_BUFFER_SIZE;
-        }
-        /* if kernel buffer is empty , reset head and tail index*/
-        if(kbuff_head == kbuff_tail){
-            kbuff_head = -2;
-            kbuff_tail = -1;
+    kbdproc_t *task;
+    
+    if (c == eof) {
+        handleeof();
+        return;
+    }
+    
+    for (i = 0; i < PROCARR; i++) {
+        if (procarr[i].waiting) {
+            task = &procarr[i];
+            ((char*)(task->buf))[task->i] = c;
+            task->i++;
+            
+            if (task->i == task->buflen || c == '\n') {
+                unblock(task);
+            }
         }
     }
 }
 
 
-void cleanup(void) {
+static void handleeof(void) {
+    int i;
+    kbdproc_t *task;
     
-    minor = -1;
-    major = -1;
-    EOF_flag = FALSE;
-    kbuff_head = -2;
-    kbuff_tail = -1;
+    enable_irq(1,1);
+    done = 1;
+
+    for (i = 0; i < PROCARR; i++) {
+        if (procarr[i].waiting) {
+            task = &procarr[i];
+            unblock(task);
+        }
+    }
     
-    call_back = NULL;
-    argP = NULL;
-    
-    user_buffer = NULL;
-    user_bufflen = 0;
-    trans_count = 0;
+    return;
 }
 
+static void unblock(kbdproc_t *task) {
+    taskcnt--;
+    task->waiting = 0;
+    task->pcb->ret = task->i;
+    if (task->pcb->state == STATE_BLOCK) {
+        ready(task->pcb);
+    }
+}

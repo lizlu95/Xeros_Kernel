@@ -13,7 +13,7 @@ static pcb      *tail = NULL;
 
 void     dispatch( void ) {
     /********************************/
-    
+
     pcb         *p;
     int         r;
     funcptr     fp;
@@ -42,6 +42,11 @@ void     dispatch( void ) {
                 break;
             case( SYS_STOP ):
                 p->state = STATE_STOPPED;
+                while (p->blockQ) {
+                    pcb *tmp = p->blockQ;
+                    ready(tmp);
+                    p->blockQ = p->blockQ->next;
+                }
                 p = next();
                 break;
             case ( SYS_KILL ):
@@ -94,6 +99,7 @@ void     dispatch( void ) {
             case(SYS_WAIT):
                 ap = (va_list)p->args;
                 p->ret = wait(va_arg( ap, int ),p);
+                p = next();
                 break;
             case(SYS_OPEN):
                 ap = (va_list)p->args;
@@ -118,12 +124,17 @@ void     dispatch( void ) {
                 buff = va_arg(ap, void *);
                 bufflen = va_arg(ap, int);
                 p->ret = di_read(p, fd, buff, bufflen, 0);
+                if (p->ret == BLOCKERR) {
+                    p->state = STATE_BLOCK;
+                    p = next();
+                }
                 break;
             case(SYS_IOCTL):
                 ap = (va_list)p->args;
                 fd = va_arg(ap, int);
-                unsigned long* addr = va_arg(ap, unsigned long *);
-                p->ret = di_ioctl(p, fd, (unsigned long *)addr);
+                unsigned long command = va_arg(ap, unsigned long);
+                void *args = (void*)va_arg(ap, unsigned long);
+                p->ret = di_ioctl(p, fd, command, args);
                 break;
             default:
                 kprintf( "Bad Sys request %d, pid = %d\n", r, p->pid );
